@@ -12,6 +12,9 @@ data/real_market.csv
 data/real_market_test.csv
 data/real_market_full.csv
 data/chinaventure_articles.csv
+data/cls_articles.csv
+data/eastmoney_industry.csv
+data/aastocks_news.csv
 data/historical_mentions.csv
 data/technical_indicators.csv
 data/backtest_*.csv
