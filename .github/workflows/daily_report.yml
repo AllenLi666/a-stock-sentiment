@@ -17,7 +17,7 @@ env:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20  # More steps now (chinaventure, cls, eastmoney, aastocks)
 
     steps:
       # ── Step 1: 检出代码 ────────────────────────────────────
@@ -52,7 +52,40 @@ jobs:
             --max-pages 1
         timeout-minutes: 3
 
-      # ── Step 5: 抓取 X/Twitter 推文 ─────────────────────────
+      # ── Step 5: 抓取财联社电报 ──────────────────────────────
+      - name: Fetch 财联社 telegraph articles
+        continue-on-error: true
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          python src/fetch_cls_articles.py \
+            --date "$TODAY" \
+            --out data/cls_articles.csv \
+            --max-items 30
+        timeout-minutes: 3
+
+      # ── Step 6: 抓取东方财富行业板块 ────────────────────────
+      - name: Fetch East Money industry sectors
+        continue-on-error: true
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          python src/fetch_eastmoney_industry.py \
+            --date "$TODAY" \
+            --out data/eastmoney_industry.csv \
+            --insecure
+        timeout-minutes: 2
+
+      # ── Step 7: 抓取 AASTOCKS 新闻 ──────────────────────────
+      - name: Fetch AASTOCKS A-share news
+        continue-on-error: true
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          python src/fetch_aastocks_news.py \
+            --date "$TODAY" \
+            --out data/aastocks_news.csv \
+            --max-items 30
+        timeout-minutes: 3
+
+      # ── Step 8: 抓取 X/Twitter 推文 ─────────────────────────
       - name: Fetch X tweets
         continue-on-error: true  # API 限流不影响后续步骤
         env:
@@ -64,7 +97,7 @@ jobs:
             --max-results 100
         timeout-minutes: 2
 
-      # ── Step 6: 抓取市场行情数据 ────────────────────────────
+      # ── Step 9: 抓取市场行情数据 ────────────────────────────
       - name: Fetch market data from Sina
         continue-on-error: true
         run: |
@@ -80,13 +113,17 @@ jobs:
             --sleep 0.2
         timeout-minutes: 5
 
-      # ── Step 7: 生成报告 ────────────────────────────────────
-      - name: Generate supply chain report
+      # ── Step 10: 生成报告（多源合并）────────────────────────
+      - name: Generate supply chain report (multi-source)
         run: |
           TODAY=$(date '+%Y-%m-%d')
           echo "Generating report for $TODAY..."
           python src/supply_chain_report.py \
             --date "$TODAY" \
+            --articles data/chinaventure_articles.csv \
+            --cls-articles data/cls_articles.csv \
+            --eastmoney-articles data/eastmoney_industry.csv \
+            --aastocks-articles data/aastocks_news.csv \
             --tweets data/real_tweets.csv \
             --exclude-prefixes "688,300" \
             --out "reports/supply_chain_report_${TODAY}.md"

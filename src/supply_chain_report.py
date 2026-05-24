@@ -1,8 +1,9 @@
 """
-投中网 · A股产业链推荐引擎
+多源文章 · A股产业链推荐引擎
 
 Full pipeline:
-1. Read articles → extract industries → match supply chain stocks
+1. Read articles from MULTIPLE sources (投中网, 财联社, 东方财富行业板块, AASTOCKS)
+   → extract industries → match supply chain stocks
 2. Analyze X sentiment for matched stocks
 3. Evaluate technical indicators (MA/RSI/MACD/volume)
 4. Generate buy/sell/stop prices
@@ -11,7 +12,12 @@ Full pipeline:
 
 Usage:
     python src/supply_chain_report.py
-    python src/supply_chain_report.py --articles data/chinaventure_articles.csv --date 2026-05-22
+    python src/supply_chain_report.py \\
+        --articles data/chinaventure_articles.csv \\
+        --cls-articles data/cls_articles.csv \\
+        --eastmoney-articles data/eastmoney_industry.csv \\
+        --aastocks-articles data/aastocks_news.csv \\
+        --date 2026-05-24
 """
 
 import argparse
@@ -729,7 +735,7 @@ def generate_report(articles_data, social_stats, market_data, supply_chain_data,
             all_codes.add(code)
 
     # Header
-    lines.append("# 投中网行业热度 · A股产业链推荐报告")
+    lines.append("# 多源行业热度 · A股产业链推荐报告")
     lines.append("")
     lines.append("**报告日期**：{}".format(report_date))
     lines.append("")
@@ -737,7 +743,7 @@ def generate_report(articles_data, social_stats, market_data, supply_chain_data,
     lines.append("")
 
     # Section 1: Industry overview from articles
-    lines.append("## 一、今日投中网覆盖行业")
+    lines.append("## 一、今日覆盖行业（投中网 + 财联社 + 东方财富 + AASTOCKS）")
     lines.append("")
     industries_found = articles_data.get("industries_found", {})
     articles_by_ind = articles_data.get("articles_by_industry", {})
@@ -936,6 +942,56 @@ def generate_report(articles_data, social_stats, market_data, supply_chain_data,
     return "\n".join(lines)
 
 
+def merge_article_sources(results):
+    """Merge article processing results from multiple data sources.
+
+    Takes a list of process_articles() result dicts and merges them:
+      - industries_found: counts are summed
+      - matched_stocks: codes from all sources, later sources override
+      - articles_by_industry: article titles are concatenated
+      - stocks_by_industry: stock lists are merged (deduplicated by code)
+
+    Returns a single merged result dict.
+    """
+    merged = {
+        "article_count": 0,
+        "industries_found": {},
+        "matched_stocks": {},
+        "articles_by_industry": {},
+        "stocks_by_industry": {},
+    }
+
+    for result in results:
+        merged["article_count"] += result.get("article_count", 0)
+
+        # Merge industries_found (sum counts)
+        for ind, count in result.get("industries_found", {}).items():
+            merged["industries_found"][ind] = merged["industries_found"].get(ind, 0) + count
+
+        # Merge matched_stocks (deduplicated by code)
+        for code, stock_info in result.get("matched_stocks", {}).items():
+            if code not in merged["matched_stocks"]:
+                merged["matched_stocks"][code] = stock_info
+
+        # Merge articles_by_industry (concatenate titles)
+        for ind, titles in result.get("articles_by_industry", {}).items():
+            merged["articles_by_industry"].setdefault(ind, [])
+            for t in titles:
+                if t not in merged["articles_by_industry"][ind]:
+                    merged["articles_by_industry"][ind].append(t)
+
+        # Merge stocks_by_industry (deduplicate by code per industry)
+        for ind, stocks in result.get("stocks_by_industry", {}).items():
+            merged["stocks_by_industry"].setdefault(ind, [])
+            existing_codes = {s["code"] for s in merged["stocks_by_industry"][ind]}
+            for s in stocks:
+                if s["code"] not in existing_codes:
+                    existing_codes.add(s["code"])
+                    merged["stocks_by_industry"][ind].append(s)
+
+    return merged
+
+
 def write_lines(path, content):
     directory = os.path.dirname(path)
     if directory and not os.path.exists(directory):
@@ -951,8 +1007,15 @@ def write_lines(path, content):
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    parser = argparse.ArgumentParser(description="投中网 · A股产业链推荐引擎")
-    parser.add_argument("--articles", default=os.path.join(base_dir, "data", "chinaventure_articles.csv"))
+    parser = argparse.ArgumentParser(description="多源文章 · A股产业链推荐引擎")
+    parser.add_argument("--articles", default=os.path.join(base_dir, "data", "chinaventure_articles.csv"),
+                        help="投中网文章 CSV")
+    parser.add_argument("--cls-articles", default=os.path.join(base_dir, "data", "cls_articles.csv"),
+                        help="财联社电报文章 CSV")
+    parser.add_argument("--eastmoney-articles", default=os.path.join(base_dir, "data", "eastmoney_industry.csv"),
+                        help="东方财富行业板块 CSV")
+    parser.add_argument("--aastocks-articles", default=os.path.join(base_dir, "data", "aastocks_news.csv"),
+                        help="AASTOCKS 财经新闻 CSV")
     parser.add_argument("--tweets", default=os.path.join(base_dir, "data", "real_tweets.csv"))
     parser.add_argument("--market", default=os.path.join(base_dir, "data", "real_market_full.csv"))
     parser.add_argument("--aliases", default=os.path.join(base_dir, "data", "stock_aliases.csv"))
@@ -972,7 +1035,7 @@ def main():
     exclude_prefixes = [p.strip() for p in args.exclude_prefixes.split(",") if p.strip()] if args.exclude_prefixes else None
 
     print("=" * 60)
-    print("投中网 · A股产业链推荐引擎")
+    print("多源文章 · A股产业链推荐引擎")
     print("=" * 60)
     print("Report date: {}".format(report_date))
     print()
@@ -983,16 +1046,38 @@ def main():
     industries_db, stock_map, industry_keywords = supply_chain_data
     print("  {} industries, {} stocks loaded".format(len(industries_db), len(stock_map)))
 
-    # 2. Load and process articles
-    print("[2/5] Loading articles...")
-    if os.path.exists(args.articles):
-        from industry_extract import process_articles
-        articles_result = process_articles(args.articles, args.supply_chain)
-        print("  {} articles processed".format(articles_result["article_count"]))
-        print("  Industries found: {}".format(list(articles_result["industries_found"].keys())))
+    # 2. Load and process articles from ALL sources
+    print("[2/5] Loading articles from all sources...")
+    from industry_extract import process_articles
+
+    article_sources = [
+        ("投中网", args.articles),
+        ("财联社", args.cls_articles),
+        ("东方财富行业", args.eastmoney_articles),
+        ("AASTOCKS", args.aastocks_articles),
+    ]
+
+    all_results = []
+    for source_name, source_path in article_sources:
+        if os.path.exists(source_path):
+            result = process_articles(source_path, args.supply_chain)
+            print("  [{}] {} articles processed, industries: {}".format(
+                source_name, result["article_count"],
+                list(result["industries_found"].keys()),
+            ))
+            all_results.append(result)
+        else:
+            print("  [{}] No file found at {}, skipping".format(source_name, source_path))
+
+    if all_results:
+        articles_result = merge_article_sources(all_results)
+        print("  MERGED: {} articles total, {} industries found".format(
+            articles_result["article_count"],
+            len(articles_result["industries_found"]),
+        ))
+        print("  Industries: {}".format(list(articles_result["industries_found"].keys())))
     else:
-        print("  No articles file found at {}".format(args.articles))
-        print("  Using manual/simulated mode with all supply chain stocks")
+        print("  No article sources available, using empty mode")
         articles_result = {
             "article_count": 0,
             "industries_found": {},
@@ -1014,9 +1099,6 @@ def main():
     all_stock_codes = set()
     if articles_result.get("matched_stocks"):
         all_stock_codes = set(articles_result["matched_stocks"].keys())
-    else:
-        # If no articles, fall back to stocks mentioned in tweets
-        pass
 
     # Load aliases and build stats
     aliases = load_stock_aliases(args.aliases)
