@@ -1,0 +1,31 @@
+# ── Secrets ──
+.env
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Runtime: 推文数据 ──
+data/real_tweets.csv
+data/real_market.csv
+data/real_market_test.csv
+data/real_market_full.csv
+data/chinaventure_articles.csv
+data/historical_mentions.csv
+data/technical_indicators.csv
+data/backtest_*.csv
+data/tweets_*.csv
+
+# ── Runtime: 生成的报告 ──
+reports/supply_chain_report_*.md
+reports/report_*.md
+reports/premarket_*.md
+reports/trade_candidates.md
+reports/backtest_*.md
+
+# ── Runtime: 日志 ──
+logs/
+
+# ── macOS ──
+.DS_Store

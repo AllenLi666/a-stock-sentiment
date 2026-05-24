@@ -1,0 +1,118 @@
+# ============================================================================
+# A股产业链每日早盘报告 — GitHub Actions 定时工作流
+# 每天北京时间 08:30（UTC 00:30）周一到周五自动执行
+# ============================================================================
+name: Daily A-Share Report
+
+on:
+  schedule:
+    # 08:30 Beijing = 00:30 UTC, weekdays only (1=Mon, 5=Fri)
+    - cron: '30 0 * * 1-5'
+  workflow_dispatch:
+    # 支持手动触发测试
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── Step 1: 检出代码 ────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Step 2: 设置 Python ──────────────────────────────────
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      # ── Step 3: 安装依赖 ────────────────────────────────────
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          # Playwright is not in requirements.txt (which uses only stdlib)
+          pip install playwright
+          python -m playwright install chromium
+        timeout-minutes: 5
+
+      # ── Step 4: 抓取投中网文章 ──────────────────────────────
+      - name: Fetch 投中网 articles
+        continue-on-error: true  # 网络失败不影响后续步骤
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          echo "Target date: $TODAY"
+          python src/fetch_chinaventure.py \
+            --date "$TODAY" \
+            --out data/chinaventure_articles.csv \
+            --max-pages 1
+        timeout-minutes: 3
+
+      # ── Step 5: 抓取 X/Twitter 推文 ─────────────────────────
+      - name: Fetch X tweets
+        continue-on-error: true  # API 限流不影响后续步骤
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+        run: |
+          python src/fetch_x_recent.py \
+            --query "(A股 OR 股市) lang:zh -is:retweet" \
+            --out data/real_tweets.csv \
+            --max-results 100
+        timeout-minutes: 2
+
+      # ── Step 6: 抓取市场行情数据 ────────────────────────────
+      - name: Fetch market data from Sina
+        continue-on-error: true
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          # Fetch ~6 months of data for enough trading days
+          START=$(date -d '-6 months' '+%Y-%m-%d')
+          echo "Fetching market data: $START -> $TODAY"
+          python src/fetch_market_sina.py \
+            --start "$START" \
+            --end "$TODAY" \
+            --out data/real_market_full.csv \
+            --datalen 90 \
+            --sleep 0.2
+        timeout-minutes: 5
+
+      # ── Step 7: 生成报告 ────────────────────────────────────
+      - name: Generate supply chain report
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          echo "Generating report for $TODAY..."
+          python src/supply_chain_report.py \
+            --date "$TODAY" \
+            --tweets data/real_tweets.csv \
+            --exclude-prefixes "688,300" \
+            --out "reports/supply_chain_report_${TODAY}.md"
+          echo "Report generated at reports/supply_chain_report_${TODAY}.md"
+
+      # ── Step 8: 推送到 Telegram ─────────────────────────────
+      - name: Send report to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          TODAY=$(date '+%Y-%m-%d')
+          REPORT_FILE="reports/supply_chain_report_${TODAY}.md"
+          if [ -f "$REPORT_FILE" ]; then
+            python src/telegram_bot.py "$REPORT_FILE" \
+              --title "📊 A股产业链早盘报告 · $TODAY" \
+              --full
+            echo "Report sent to Telegram successfully."
+          else
+            echo "WARNING: Report file $REPORT_FILE not found, skipping Telegram push."
+          fi
+
+      # ── Step 9: 上传报告作为构建产物 ────────────────────────
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_id }}
+          path: reports/supply_chain_report_*.md
+          retention-days: 7
