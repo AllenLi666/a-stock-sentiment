@@ -37,7 +37,7 @@ def load_config():
         token (str): Bot token
         chat_ids (list[str]): List of chat IDs (single or comma-separated)
     """
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id_raw = os.environ.get("TELEGRAM_CHAT_ID", "")
 
     env_path = os.path.join(BASE_DIR, ".env")
@@ -49,6 +49,9 @@ def load_config():
                     token = line.split("=", 1)[1].strip().strip('"').strip("'")
                 elif line.startswith("TELEGRAM_CHAT_ID="):
                     chat_id_raw = line.split("=", 1)[1].strip().strip('"').strip("'")
+
+    # Strip whitespace/newlines from token (critical for GitHub Secrets)
+    token = token.strip()
 
     # Parse comma-separated chat IDs, strip whitespace, filter empties
     chat_ids = [cid.strip() for cid in chat_id_raw.split(",") if cid.strip()]
