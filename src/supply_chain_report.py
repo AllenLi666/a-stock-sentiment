@@ -168,7 +168,13 @@ def calc_sentiment_relay_score(price_stage_score, rsi_val, stock_inds, industrie
 
 
 def load_tweets(path):
-    """Load tweets CSV and filter by date if specified."""
+    """Load tweets CSV and return list of rows.
+    Returns empty list if file does not exist (graceful degradation for CI/cloud).
+    """
+    if not os.path.exists(path):
+        print("WARNING: Tweets file not found: {}".format(path))
+        print("         Returning empty dataset. Report will have no social data.")
+        return []
     rows = []
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)

@@ -30,7 +30,14 @@ def pct_change(new_value, old_value):
 
 
 def load_market(path):
+    """Load market data CSV.
+    Returns empty defaultdict if file does not exist (graceful degradation for CI/cloud).
+    """
     rows_by_code = defaultdict(list)
+    if not os.path.exists(path):
+        print("WARNING: Market data file not found: {}".format(path))
+        print("         Returning empty dataset. Report will have no market data.")
+        return rows_by_code
     for row in read_csv(path):
         item = {
             "date": row["date"],
