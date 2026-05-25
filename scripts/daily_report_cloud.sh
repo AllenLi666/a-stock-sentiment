@@ -3,7 +3,7 @@
 # A股产业链每日报告 — 云端适配版（多源数据 + 多时段）
 #
 # 支持多个数据源：投中网, 财联社, 东方财富行业板块, AASTOCKS
-# 支持多个时段：盘前早报(08:xx), 开盘快报(09:xx), 午间复盘(11:xx), 手动
+# 支持多个时段：盘前早报(08:xx), 开盘快报(09:xx), 午间复盘(11:xx), 午盘预测(12:xx), 手动
 #
 # 用法:
 #   export X_BEARER_TOKEN="your_token"
@@ -29,6 +29,9 @@ elif [ "$HOUR" = "09" ]; then
 elif [ "$HOUR" = "11" ]; then
     SLOT="noon"
     TITLE_SUFFIX="午间复盘"
+elif [ "$HOUR" = "12" ]; then
+    SLOT="afternoon"
+    TITLE_SUFFIX="午盘预测"
 else
     SLOT="manual"
     TITLE_SUFFIX="报告"
