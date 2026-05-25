@@ -1,8 +1,9 @@
 #!/bin/bash
 # ============================================================================
-# A股产业链每日早盘报告 — GitHub Actions 云端适配版（多源数据）
+# A股产业链每日报告 — 云端适配版（多源数据 + 多时段）
 #
-# Supports multiple data sources: 投中网, 财联社, 东方财富行业板块, AASTOCKS
+# 支持多个数据源：投中网, 财联社, 东方财富行业板块, AASTOCKS
+# 支持多个时段：盘前早报(08:xx), 开盘快报(09:xx), 午间复盘(11:xx), 手动
 #
 # 用法:
 #   export X_BEARER_TOKEN="your_token"
@@ -16,10 +17,26 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TODAY=$(date '+%Y-%m-%d')
+HOUR=$(date '+%H')
+
+# ── 时段检测 ─────────────────────────────────────────────────
+if [ "$HOUR" = "08" ]; then
+    SLOT="premarket"
+    TITLE_SUFFIX="盘前早报"
+elif [ "$HOUR" = "09" ]; then
+    SLOT="open"
+    TITLE_SUFFIX="开盘快报"
+elif [ "$HOUR" = "11" ]; then
+    SLOT="noon"
+    TITLE_SUFFIX="午间复盘"
+else
+    SLOT="manual"
+    TITLE_SUFFIX="报告"
+fi
 
 # ── 路径配置 ────────────────────────────────────────────────
 REPORT_DIR="$PROJECT_DIR/reports"
-REPORT_FILE="$REPORT_DIR/supply_chain_report_${TODAY}.md"
+REPORT_FILE="$REPORT_DIR/supply_chain_report_${TODAY}_${SLOT}.md"
 ARTICLES_FILE="$PROJECT_DIR/data/chinaventure_articles.csv"
 CLS_FILE="$PROJECT_DIR/data/cls_articles.csv"
 EASTMONEY_FILE="$PROJECT_DIR/data/eastmoney_industry.csv"
@@ -33,8 +50,8 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-log "=== A股早盘报告开始 (多源版) ==="
-log "Date: $TODAY"
+log "=== A股报告开始 (多源版) ==="
+log "Date: $TODAY | Slot: $SLOT ($TITLE_SUFFIX)"
 
 # Step 1: 抓取投中网文章
 log "[1/7] Fetching 投中网 articles..."
@@ -100,9 +117,9 @@ fi
 log "Report generated: $REPORT_FILE"
 
 # Send to Telegram
-log "Sending to Telegram..."
+log "Sending to Telegram ($TITLE_SUFFIX)..."
 python3 "$PROJECT_DIR/src/telegram_bot.py" "$REPORT_FILE" \
-    --title "📊 A股产业链早盘报告 · $TODAY" \
+    --title "📊 A股产业链${TITLE_SUFFIX} · $TODAY" \
     --full
 
 log "=== A股早盘报告完成 ==="

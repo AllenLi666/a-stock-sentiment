@@ -1,13 +1,21 @@
 # ============================================================================
-# A股产业链每日早盘报告 — GitHub Actions 定时工作流
-# 每天北京时间 08:30（UTC 00:30）周一到周五自动执行
+# A股产业链每日报告 — GitHub Actions 定时工作流（多时段）
+# 每天三个时段运行：
+#   08:30 Beijing (00:30 UTC) — 盘前早报
+#   09:30 Beijing (01:30 UTC) — 开盘快报
+#   11:45 Beijing (03:45 UTC) — 午间复盘
+# 周一到周五自动执行
 # ============================================================================
 name: Daily A-Share Report
 
 on:
   schedule:
-    # 08:30 Beijing = 00:30 UTC, weekdays only (1=Mon, 5=Fri)
+    # 08:30 Beijing = 00:30 UTC — 盘前早报
     - cron: '30 0 * * 1-5'
+    # 09:30 Beijing = 01:30 UTC — 开盘快报
+    - cron: '30 1 * * 1-5'
+    # 11:45 Beijing = 03:45 UTC — 午间复盘
+    - cron: '45 3 * * 1-5'
   workflow_dispatch:
     # 支持手动触发测试
 
@@ -17,7 +25,7 @@ env:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # More steps now (chinaventure, cls, eastmoney, aastocks)
+    timeout-minutes: 20
 
     steps:
       # ── Step 1: 检出代码 ────────────────────────────────────
@@ -114,10 +122,27 @@ jobs:
         timeout-minutes: 5
 
       # ── Step 10: 生成报告（多源合并）────────────────────────
-      - name: Generate supply chain report (multi-source)
+      - name: Generate supply chain report
         run: |
           TODAY=$(date '+%Y-%m-%d')
-          echo "Generating report for $TODAY..."
+          HOUR=$(date '+%H')
+          # Determine time slot for filename and title
+          if [ "$HOUR" = "08" ]; then
+            SLOT="premarket"
+            TITLE_SUFFIX="盘前早报"
+          elif [ "$HOUR" = "09" ]; then
+            SLOT="open"
+            TITLE_SUFFIX="开盘快报"
+          elif [ "$HOUR" = "11" ]; then
+            SLOT="noon"
+            TITLE_SUFFIX="午间复盘"
+          else
+            SLOT="manual"
+            TITLE_SUFFIX="报告"
+          fi
+          echo "Time slot: $SLOT ($TITLE_SUFFIX)"
+          echo "SLOT=$SLOT" >> $GITHUB_ENV
+          echo "TITLE_SUFFIX=$TITLE_SUFFIX" >> $GITHUB_ENV
           python src/supply_chain_report.py \
             --date "$TODAY" \
             --articles data/chinaventure_articles.csv \
@@ -126,27 +151,29 @@ jobs:
             --aastocks-articles data/aastocks_news.csv \
             --tweets data/real_tweets.csv \
             --exclude-prefixes "688,300" \
-            --out "reports/supply_chain_report_${TODAY}.md"
-          echo "Report generated at reports/supply_chain_report_${TODAY}.md"
+            --out "reports/supply_chain_report_${TODAY}_${SLOT}.md"
+          echo "Report generated at reports/supply_chain_report_${TODAY}_${SLOT}.md"
 
-      # ── Step 8: 推送到 Telegram ─────────────────────────────
+      # ── Step 11: 推送到 Telegram ─────────────────────────────
       - name: Send report to Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           TODAY=$(date '+%Y-%m-%d')
-          REPORT_FILE="reports/supply_chain_report_${TODAY}.md"
+          SLOT="${SLOT:-manual}"
+          TITLE_SUFFIX="${TITLE_SUFFIX:-报告}"
+          REPORT_FILE="reports/supply_chain_report_${TODAY}_${SLOT}.md"
           if [ -f "$REPORT_FILE" ]; then
             python src/telegram_bot.py "$REPORT_FILE" \
-              --title "📊 A股产业链早盘报告 · $TODAY" \
+              --title "📊 A股产业链${TITLE_SUFFIX} · $TODAY" \
               --full
             echo "Report sent to Telegram successfully."
           else
             echo "WARNING: Report file $REPORT_FILE not found, skipping Telegram push."
           fi
 
-      # ── Step 9: 上传报告作为构建产物 ────────────────────────
+      # ── Step 12: 上传报告作为构建产物 ────────────────────────
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
